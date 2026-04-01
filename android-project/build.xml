@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="DixonRes" default="debug" basedir=".">
+    <property name="sdk.dir" value="/usr/lib/android-sdk" />
+    <property name="platform.target" value="android-23" />
+    <property name="src.dir" value="app/src/main/java" />
+    <property name="res.dir" value="app/src/main/res" />
+    <property name="assets.dir" value="app/src/main/assets" />
+    <property name="manifest.file" value="app/src/main/AndroidManifest.xml" />
+    <property name="gen.dir" value="build/gen" />
+    <property name="bin.dir" value="build/bin" />
+    <property name="classes.dir" value="build/classes" />
+    
+    <taskdef resource="anttasks.properties">
+        <classpath>
+            <pathelement location="${sdk.dir}/tools/lib/ant-tasks.jar" />
+        </classpath>
+    </taskdef>
+    
+    <target name="clean">
+        <delete dir="${gen.dir}" />
+        <delete dir="${bin.dir}" />
+        <delete dir="${classes.dir}" />
+    </target>
+    
+    <target name="prepare">
+        <mkdir dir="${gen.dir}" />
+        <mkdir dir="${bin.dir}" />
+        <mkdir dir="${classes.dir}" />
+        <exec executable="${sdk.dir}/build-tools/debian/aapt" failonerror="true">
+            <arg value="package" />
+            <arg value="-f" />
+            <arg value="-m" />
+            <arg value="-J" />
+            <arg value="${gen.dir}" />
+            <arg value="-S" />
+            <arg value="${res.dir}" />
+            <arg value="-M" />
+            <arg value="${manifest.file}" />
+            <arg value="-I" />
+            <arg value="${sdk.dir}/platforms/${platform.target}/android.jar" />
+        </exec>
+    </target>
+    
+    <target name="compile" depends="prepare">
+        <javac destdir="${classes.dir}" source="1.7" target="1.7" encoding="UTF-8" debug="true" includeantruntime="false">
+            <src path="${src.dir}" />
+            <src path="${gen.dir}" />
+            <classpath>
+                <pathelement location="${sdk.dir}/platforms/${platform.target}/android.jar" />
+            </classpath>
+        </javac>
+    </target>
+    
+    <target name="debug" depends="compile">
+        <exec executable="${sdk.dir}/build-tools/debian/dx" failonerror="true">
+            <arg value="--dex" />
+            <arg value="--output=${bin.dir}/classes.dex" />
+            <arg value="${classes.dir}" />
+        </exec>
+        <mkdir dir="${bin.dir}/tmp" />
+        <copy file="${bin.dir}/classes.dex" todir="${bin.dir}/tmp" />
+        <mkdir dir="${bin.dir}/lib/arm64-v8a" />
+        <copy file="app/src/main/jniLibs/arm64-v8a/libflint.so" todir="${bin.dir}/lib/arm64-v8a" />
+        <copy file="app/src/main/jniLibs/arm64-v8a/libflint.so.22" todir="${bin.dir}/lib/arm64-v8a" />
+        <copy file="app/src/main/jniLibs/arm64-v8a/libgmp.so" todir="${bin.dir}/lib/arm64-v8a" />
+        <copy file="app/src/main/jniLibs/arm64-v8a/libmpfr.so" todir="${bin.dir}/lib/arm64-v8a" />
+        <exec executable="${sdk.dir}/build-tools/debian/aapt" failonerror="true">
+            <arg value="package" />
+            <arg value="-f" />
+            <arg value="-S" />
+            <arg value="${res.dir}" />
+            <arg value="-M" />
+            <arg value="${manifest.file}" />
+            <arg value="-I" />
+            <arg value="${sdk.dir}/platforms/${platform.target}/android.jar" />
+            <arg value="-A" />
+            <arg value="${assets.dir}" />
+            <arg value="-F" />
+            <arg value="${bin.dir}/DixonRes-unaligned.apk" />
+            <arg value="${bin.dir}/tmp" />
+            <arg value="${bin.dir}/lib" />
+        </exec>
+        <exec executable="${sdk.dir}/build-tools/debian/zipalign" failonerror="true">
+            <arg value="-v" />
+            <arg value="4" />
+            <arg value="${bin.dir}/DixonRes-unaligned.apk" />
+            <arg value="${bin.dir}/DixonRes-aligned.apk" />
+        </exec>
+        <exec executable="jarsigner" failonerror="true">
+            <arg value="-sigalg" />
+            <arg value="SHA1withRSA" />
+            <arg value="-digestalg" />
+            <arg value="SHA1" />
+            <arg value="-keystore" />
+            <arg value="debug.keystore" />
+            <arg value="-storepass" />
+            <arg value="android" />
+            <arg value="-keypass" />
+            <arg value="android" />
+            <arg value="${bin.dir}/DixonRes-aligned.apk" />
+            <arg value="androiddebugkey" />
+        </exec>
+        <exec executable="cp" failonerror="true">
+            <arg value="${bin.dir}/DixonRes-aligned.apk" />
+            <arg value="${bin.dir}/DixonRes.apk" />
+        </exec>
+        <delete dir="${bin.dir}/tmp" />
+        <delete file="${bin.dir}/DixonRes-unaligned.apk" />
+        <delete file="${bin.dir}/DixonRes-aligned.apk" />
+    </target>
+</project>

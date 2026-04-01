@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">DixonRes</string>
+    <string name="hello_world">Hello World!</string>
+    <string name="btn_run">Run</string>
+    <string name="btn_clear">Clear</string>
+    <string name="hint_input">Enter polynomial system</string>
+    <string name="hint_vars">Enter variables</string>
+    <string name="hint_modulus">Enter modulus</string>
+    <string name="result_title">Result</string>
+    <string name="error_title">Error</string>
+    <string name="error_empty_input">Please enter polynomial system</string>
+    <string name="error_empty_vars">Please enter variables</string>
+    <string name="error_empty_modulus">Please enter modulus</string>
+</resources>
