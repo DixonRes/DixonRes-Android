@@ -7,6 +7,27 @@ Dixon Resultant Computation for Android (ARM64)
 We found that basic Flint functionality can be used on Android, but there are numerous bugs.
 Our attempt on Android should stop here. You can use our Linux version [DixonRes](https://github.com/DixonRes/DixonRes) via Termux.
 
+    wget https://flintlib.org/download/flint-3.4.0.zip
+    unzip flint-3.4.0.zip && cd flint-3.4.0
+    ./configure --prefix=$PREFIX --enable-static
+    make -j4
+    make install
+    cd ..
+    
+    git clone https://github.com/vneiger/pml.git
+    cd pml/flint-extras
+    ./bootstrap.sh
+    ./configure --prefix=$PREFIX --enable-static
+    make -j4
+    make install
+    cd ../..
+    
+    git clone https://github.com/DixonRes/DixonRes.git
+    cd DixonRes
+    ./configure --prefix=$PREFIX
+    make -j4
+    make install
+
 ## Overview
 
 This project implements Dixon resultant computation algorithm for Android devices. It uses FLINT (Fast Library for Number Theory) for polynomial arithmetic and matrix operations.
