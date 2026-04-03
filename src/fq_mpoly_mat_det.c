@@ -49,6 +49,16 @@ static inline void poly_mul_dense_optimized(fq_nmod_mpoly_t c,
     slong alen = fq_nmod_mpoly_length(a, ctx);
     slong blen = fq_nmod_mpoly_length(b, ctx);
     
+#if defined(__ANDROID__)
+    fprintf(stderr, "[DEBUG] poly_mul_dense_optimized: ENTERED, alen=%ld, blen=%ld\n", alen, blen);
+    fflush(stderr);
+    // On Android platform, use simple multiplication to avoid compatibility issues
+    fprintf(stderr, "[DEBUG] poly_mul_dense_optimized: calling fq_nmod_mpoly_mul\n");
+    fflush(stderr);
+    fq_nmod_mpoly_mul(c, a, b, ctx);
+    fprintf(stderr, "[DEBUG] poly_mul_dense_optimized: fq_nmod_mpoly_mul completed\n");
+    fflush(stderr);
+#else
     // For very dense polynomials, try different multiplication algorithms
     if (alen > 100 && blen > 100) {
         // Try Johnson's multiplication for dense polynomials
@@ -58,6 +68,7 @@ static inline void poly_mul_dense_optimized(fq_nmod_mpoly_t c,
         fq_nmod_mpoly_mul(c, a, b, ctx);
     }
     fq_nmod_mpoly_reduce_field_equation_inplace(c, ctx);
+#endif
 }
 
 // ============= Conversion Functions for Polynomial Recursive Implementation =============
@@ -252,6 +263,9 @@ void compute_fq_det_poly_recursive(fq_mvpoly_t *result, fq_mvpoly_t **matrix, sl
     slong npars = matrix[0][0].npars;
     slong total_vars = nvars + npars;
     
+    fprintf(stderr, "[DEBUG] compute_fq_det_poly_recursive: size=%ld, nvars=%ld, npars=%ld, total_vars=%ld\n", size, nvars, npars, total_vars);
+    fflush(stderr);
+    
     DET_PRINT("Computing %ldx%ld determinant via polynomial recursive with Kronecker\n", size, size);
     DET_PRINT("Variables: %ld, Parameters: %ld\n", nvars, npars);
     
@@ -262,7 +276,7 @@ void compute_fq_det_poly_recursive(fq_mvpoly_t *result, fq_mvpoly_t **matrix, sl
         // Convert to fq_nmod_poly format
         fq_nmod_poly_t **poly_matrix = (fq_nmod_poly_t**) malloc(size * sizeof(fq_nmod_poly_t*));
         for (slong i = 0; i < size; i++) {
-            poly_matrix[i] = (fq_nmod_poly_t*) malloc(size * sizeof(fq_nmod_poly_t));
+            poly_matrix[i] = (fq_nmod_poly_t*) malloc(size * sizeof(fq_nmod_poly_t*));
             for (slong j = 0; j < size; j++) {
                 fq_nmod_poly_init(poly_matrix[i][j], ctx);
                 
@@ -333,12 +347,26 @@ void compute_fq_det_poly_recursive(fq_mvpoly_t *result, fq_mvpoly_t **matrix, sl
     compute_kronecker_bounds(var_bounds, matrix, size, nvars, npars);
     timing_info_t bounds_elapsed = end_timing(bounds_start);
     
+    fprintf(stderr, "[DEBUG] Variable bounds: ");
+    for (slong v = 0; v < total_vars; v++) {
+        fprintf(stderr, "%ld ", var_bounds[v]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    
     // Step 2: Compute substitution powers
     slong *substitution_powers = (slong*) malloc(total_vars * sizeof(slong));
     substitution_powers[0] = 1;
     for (slong v = 1; v < total_vars; v++) {
         substitution_powers[v] = substitution_powers[v-1] * var_bounds[v-1];
     }
+    
+    fprintf(stderr, "[DEBUG] Substitution powers: ");
+    for (slong v = 0; v < total_vars; v++) {
+        fprintf(stderr, "%ld ", substitution_powers[v]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
     
     DET_PRINT("Substitution powers: ");
     for (slong v = 0; v < total_vars; v++) {
@@ -353,8 +381,12 @@ void compute_fq_det_poly_recursive(fq_mvpoly_t *result, fq_mvpoly_t **matrix, sl
         poly_matrix[i] = (fq_nmod_poly_t*) malloc(size * sizeof(fq_nmod_poly_t));
         for (slong j = 0; j < size; j++) {
             fq_nmod_poly_init(poly_matrix[i][j], ctx);
+            fprintf(stderr, "[DEBUG] Converting matrix[%ld][%ld], nterms=%ld\n", i, j, matrix[i][j].nterms);
+            fflush(stderr);
             mvpoly_to_univariate_kronecker(poly_matrix[i][j], &matrix[i][j], 
                                           substitution_powers, ctx);
+            fprintf(stderr, "[DEBUG] Converted matrix[%ld][%ld], degree=%ld\n", i, j, fq_nmod_poly_degree(poly_matrix[i][j], ctx));
+            fflush(stderr);
         }
     }
     timing_info_t convert_elapsed = end_timing(convert_start);
@@ -364,15 +396,23 @@ void compute_fq_det_poly_recursive(fq_mvpoly_t *result, fq_mvpoly_t **matrix, sl
     fq_nmod_poly_t det_poly;
     fq_nmod_poly_init(det_poly, ctx);
     
+    fprintf(stderr, "[DEBUG] About to call compute_det_poly_recursive_helper\n");
+    fflush(stderr);
     compute_det_poly_recursive_helper(det_poly, poly_matrix, size, ctx);
+    fprintf(stderr, "[DEBUG] compute_det_poly_recursive_helper returned, degree=%ld\n", fq_nmod_poly_degree(det_poly, ctx));
+    fflush(stderr);
     
     timing_info_t det_elapsed = end_timing(det_start);
     DET_PRINT("Univariate determinant degree: %ld\n", fq_nmod_poly_degree(det_poly, ctx));
     
     // Step 5: Convert back to multivariate
     timing_info_t back_start = start_timing();
+    fprintf(stderr, "[DEBUG] Converting back to multivariate...\n");
+    fflush(stderr);
     univariate_to_mvpoly_kronecker(result, det_poly, substitution_powers, 
                                   var_bounds, nvars, npars, ctx);
+    fprintf(stderr, "[DEBUG] Converted back, result has %ld terms\n", result->nterms);
+    fflush(stderr);
     timing_info_t back_elapsed = end_timing(back_start);
     
     // Cleanup
@@ -407,6 +447,9 @@ void compute_kronecker_bounds(slong *var_bounds, fq_mvpoly_t **matrix,
                              slong size, slong nvars, slong npars) {
     slong total_vars = nvars + npars;
     
+    fprintf(stderr, "[DEBUG] compute_kronecker_bounds: size=%ld, nvars=%ld, npars=%ld, total_vars=%ld\n", size, nvars, npars, total_vars);
+    fflush(stderr);
+    
     // Initialize bounds
     for (slong v = 0; v < total_vars; v++) {
         var_bounds[v] = 0;
@@ -439,6 +482,13 @@ void compute_kronecker_bounds(slong *var_bounds, fq_mvpoly_t **matrix,
         }
     }
     
+    fprintf(stderr, "[DEBUG] Initial var_bounds (max per variable): ");
+    for (slong v = 0; v < total_vars; v++) {
+        fprintf(stderr, "%ld ", var_bounds[v]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    
     // Compute degree bound for determinant (sum of row maximums)
     for (slong v = 0; v < total_vars; v++) {
         slong det_bound = 0;
@@ -467,9 +517,24 @@ void compute_kronecker_bounds(slong *var_bounds, fq_mvpoly_t **matrix,
         
         var_bounds[v] = det_bound + 1;  // Add 1 for safety
     }
+    
+    fprintf(stderr, "[DEBUG] var_bounds after determinant bound calculation: ");
+    for (slong v = 0; v < total_vars; v++) {
+        fprintf(stderr, "%ld ", var_bounds[v]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    
     for (slong v = 0; v < nvars/2; v++) {
         var_bounds[v] = var_bounds[v + nvars/2];
     }
+    
+    fprintf(stderr, "[DEBUG] var_bounds after setting dual variable bounds: ");
+    for (slong v = 0; v < total_vars; v++) {
+        fprintf(stderr, "%ld ", var_bounds[v]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
 }
 
 // Convert multivariate polynomial to univariate using Kronecker substitution
@@ -482,6 +547,9 @@ void mvpoly_to_univariate_kronecker(fq_nmod_poly_t uni_poly,
     if (mv_poly->nterms == 0) return;
     
     slong total_vars = mv_poly->nvars + mv_poly->npars;
+    
+    fprintf(stderr, "[DEBUG] mvpoly_to_univariate_kronecker: nterms=%ld, total_vars=%ld\n", mv_poly->nterms, total_vars);
+    fflush(stderr);
     
     for (slong t = 0; t < mv_poly->nterms; t++) {
         slong uni_exp = 0;
@@ -499,6 +567,9 @@ void mvpoly_to_univariate_kronecker(fq_nmod_poly_t uni_poly,
                           substitution_powers[mv_poly->nvars + p];
             }
         }
+        
+        fprintf(stderr, "[DEBUG]   Term %ld: uni_exp=%ld\n", t, uni_exp);
+        fflush(stderr);
         
         // Add coefficient at computed degree
         fq_nmod_t existing;
@@ -1454,27 +1525,76 @@ void compute_fq_nmod_mpoly_det_recursive(fq_nmod_mpoly_t det_result,
                                         fq_nmod_mpoly_t **mpoly_matrix, 
                                         slong size, 
                                         fq_nmod_mpoly_ctx_t mpoly_ctx) {
+    
+#if defined(__ANDROID__)
+    fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: ENTERED, size=%ld\n", size);
+    fflush(stderr);
+#endif
+    
     if (size <= 0) {
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: size <= 0, returning 1\n");
+        fflush(stderr);
+#endif
         fq_nmod_mpoly_one(det_result, mpoly_ctx);
         return;
     }
     
     if (size == 1) {
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: size == 1, setting det_result\n");
+        fflush(stderr);
+#endif
         fq_nmod_mpoly_set(det_result, mpoly_matrix[0][0], mpoly_ctx);
         return;
     }
     
     if (size == 2) {
-        fq_nmod_mpoly_t ad, bc;
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: size == 2, initializing ad, bc, and tmp\n");
+        fflush(stderr);
+#endif
+        fq_nmod_mpoly_t ad, bc, tmp;
         fq_nmod_mpoly_init(ad, mpoly_ctx);
         fq_nmod_mpoly_init(bc, mpoly_ctx);
+        fq_nmod_mpoly_init(tmp, mpoly_ctx);
         
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: computing a*d\n");
+        fflush(stderr);
+#endif
         poly_mul_dense_optimized(ad, mpoly_matrix[0][0], mpoly_matrix[1][1], mpoly_ctx);
-        poly_mul_dense_optimized(bc, mpoly_matrix[0][1], mpoly_matrix[1][0], mpoly_ctx);
-        fq_nmod_mpoly_sub(det_result, ad, bc, mpoly_ctx);
         
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: computing b*c\n");
+        fflush(stderr);
+#endif
+        poly_mul_dense_optimized(bc, mpoly_matrix[0][1], mpoly_matrix[1][0], mpoly_ctx);
+        
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: negating bc\n");
+        fflush(stderr);
+#endif
+        fq_nmod_mpoly_neg(tmp, bc, mpoly_ctx);
+        
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: adding ad + (-bc)\n");
+        fflush(stderr);
+#endif
+        fq_nmod_mpoly_add(det_result, ad, tmp, mpoly_ctx);
+        
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: cleaning up\n");
+        fflush(stderr);
+#endif
         fq_nmod_mpoly_clear(ad, mpoly_ctx);
         fq_nmod_mpoly_clear(bc, mpoly_ctx);
+        fq_nmod_mpoly_clear(tmp, mpoly_ctx);
+        
+#if defined(__ANDROID__)
+        fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive: completed for size == 2\n");
+        fflush(stderr);
+#endif
         return;
     }
     
@@ -1873,6 +1993,83 @@ void compute_fq_det_unified_interface(fq_mvpoly_t *result, fq_mvpoly_t **matrix,
         //print_timing("Total univariate computation", total_elapsed);
         return;
     }
+
+    // On Android platform, directly use compute_fq_nmod_mpoly_det_recursive
+#if defined(__ANDROID__)
+    fprintf(stderr, "[DEBUG] Android platform: using direct FLINT computation\n");
+    fflush(stderr);
+    
+    // Create fq_nmod_mpoly matrix
+    fprintf(stderr, "[DEBUG] Creating fq_nmod_mpoly_ctx\n");
+    fflush(stderr);
+    fq_nmod_mpoly_ctx_t android_mpoly_ctx;
+    fq_nmod_mpoly_ctx_init(android_mpoly_ctx, total_vars, ORD_LEX, ctx);
+    fprintf(stderr, "[DEBUG] fq_nmod_mpoly_ctx created, total_vars=%ld\n", total_vars);
+    fflush(stderr);
+    
+    fprintf(stderr, "[DEBUG] Allocating flint_matrix, size=%ld\n", size);
+    fflush(stderr);
+    fq_nmod_mpoly_t **flint_matrix = (fq_nmod_mpoly_t**) flint_malloc(size * sizeof(fq_nmod_mpoly_t*));
+    fprintf(stderr, "[DEBUG] flint_matrix allocated at %p\n", (void*)flint_matrix);
+    fflush(stderr);
+    
+    for (slong i = 0; i < size; i++) {
+        fprintf(stderr, "[DEBUG] Allocating row %ld\n", i);
+        fflush(stderr);
+        flint_matrix[i] = (fq_nmod_mpoly_t*) flint_malloc(size * sizeof(fq_nmod_mpoly_t));
+        fprintf(stderr, "[DEBUG] Row %ld allocated at %p\n", i, (void*)flint_matrix[i]);
+        fflush(stderr);
+        
+        for (slong j = 0; j < size; j++) {
+            fprintf(stderr, "[DEBUG] Initializing flint_matrix[%ld][%ld]\n", i, j);
+            fflush(stderr);
+            fq_nmod_mpoly_init(flint_matrix[i][j], android_mpoly_ctx);
+            fprintf(stderr, "[DEBUG] Converting fq_mvpoly to fq_nmod_mpoly at [%ld][%ld]\n", i, j);
+            fflush(stderr);
+            fq_mvpoly_to_fq_nmod_mpoly(flint_matrix[i][j], &matrix[i][j], android_mpoly_ctx);
+            fprintf(stderr, "[DEBUG] Conversion done for [%ld][%ld]\n", i, j);
+            fflush(stderr);
+        }
+    }
+    
+    fprintf(stderr, "[DEBUG] Initializing det_flint\n");
+    fflush(stderr);
+    // Compute determinant directly
+    fq_nmod_mpoly_t det_flint;
+    fq_nmod_mpoly_init(det_flint, android_mpoly_ctx);
+    fprintf(stderr, "[DEBUG] Calling compute_fq_nmod_mpoly_det_recursive\n");
+    fflush(stderr);
+    compute_fq_nmod_mpoly_det_recursive(det_flint, flint_matrix, size, android_mpoly_ctx);
+    fprintf(stderr, "[DEBUG] compute_fq_nmod_mpoly_det_recursive completed\n");
+    fflush(stderr);
+    
+    fprintf(stderr, "[DEBUG] Converting back to fq_mvpoly\n");
+    fflush(stderr);
+    // Convert back to fq_mvpoly
+    fq_nmod_mpoly_to_fq_mvpoly(result, det_flint, nvars, npars, android_mpoly_ctx, ctx);
+    fprintf(stderr, "[DEBUG] Conversion to fq_mvpoly done\n");
+    fflush(stderr);
+    
+    fprintf(stderr, "[DEBUG] Cleaning up\n");
+    fflush(stderr);
+    // Cleanup
+    for (slong i = 0; i < size; i++) {
+        for (slong j = 0; j < size; j++) {
+            fq_nmod_mpoly_clear(flint_matrix[i][j], android_mpoly_ctx);
+        }
+        flint_free(flint_matrix[i]);
+    }
+    flint_free(flint_matrix);
+    fq_nmod_mpoly_clear(det_flint, android_mpoly_ctx);
+    fq_nmod_mpoly_ctx_clear(android_mpoly_ctx);
+    
+    fprintf(stderr, "[DEBUG] Cleanup done\n");
+    fflush(stderr);
+    
+    timing_info_t android_total_elapsed = end_timing(total_start);
+    (void) android_total_elapsed;
+    return;
+#endif
 
     // ===== USE UNIFIED INTERFACE =====
     DET_PRINT("Using unified multivariate polynomial interface\n");
@@ -2371,6 +2568,13 @@ void compute_fq_det_recursive_flint(fq_mvpoly_t *result, fq_mvpoly_t **matrix, s
     slong npars = matrix[0][0].npars;
     const fq_nmod_ctx_struct *ctx = matrix[0][0].ctx;
     
+#if defined(__ANDROID__)
+    // On Android platform, always use polynomial recursive algorithm to avoid compatibility issues
+    fprintf(stderr, "[DEBUG] Android platform: using polynomial recursive algorithm for size=%ld\n", size);
+    fflush(stderr);
+    compute_fq_det_poly_recursive(result, matrix, size);
+    return;
+#else
     // Choose algorithm based on configuration
     #if DET_ALGORITHM == DET_ALGORITHM_INTERPOLATION
     {
@@ -2415,6 +2619,7 @@ void compute_fq_det_recursive_flint(fq_mvpoly_t *result, fq_mvpoly_t **matrix, s
         compute_fq_det_unified_interface(result, matrix, size);
     }
     #endif
+#endif
 }
 
 // Compatibility interface

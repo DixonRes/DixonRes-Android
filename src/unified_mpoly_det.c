@@ -34,6 +34,27 @@ static void compute_det_3x3_unified(unified_mpoly_t det,
     t6 = unified_mpoly_init(ctx);
     sum = unified_mpoly_init(ctx);
     
+    /* On Android platform, always use sequential computation to avoid OpenMP compatibility issues */
+#if defined(__ANDROID__)
+    /* Sequential computation for Android platform */
+    unified_mpoly_mul(t1, m[1][1], m[2][2]);
+    unified_mpoly_mul(t1, m[0][0], t1);
+    
+    unified_mpoly_mul(t2, m[1][2], m[2][0]);
+    unified_mpoly_mul(t2, m[0][1], t2);
+    
+    unified_mpoly_mul(t3, m[1][0], m[2][1]);
+    unified_mpoly_mul(t3, m[0][2], t3);
+    
+    unified_mpoly_mul(t4, m[1][0], m[2][2]);
+    unified_mpoly_mul(t4, m[0][1], t4);
+    
+    unified_mpoly_mul(t5, m[1][1], m[2][0]);
+    unified_mpoly_mul(t5, m[0][2], t5);
+    
+    unified_mpoly_mul(t6, m[1][2], m[2][1]);
+    unified_mpoly_mul(t6, m[0][0], t6);
+#else
     /* Compute 6 products in parallel if beneficial */
     #ifdef _OPENMP
     #pragma omp parallel sections if(omp_get_max_threads() > 2)
@@ -89,6 +110,7 @@ static void compute_det_3x3_unified(unified_mpoly_t det,
     unified_mpoly_mul(t6, m[1][2], m[2][1]);
     unified_mpoly_mul(t6, m[0][0], t6);
     #endif
+#endif
     
     /* Sum with signs: det = t1 + t2 + t3 - t4 - t5 - t6 */
     unified_mpoly_add(sum, t1, t2);
@@ -116,38 +138,66 @@ void compute_unified_mpoly_det_recursive(unified_mpoly_t det_result,
     static int recursion_depth = 0;
     recursion_depth++;
     
+    fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: ENTERED, size=%ld, depth=%d\n", 
+            size, recursion_depth);
+    fflush(stderr);
+    
     if (size <= 0) {
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: size <= 0, returning 1\n");
+        fflush(stderr);
         unified_mpoly_one(det_result);
+        recursion_depth--;
         return;
     }
     
     if (size == 1) {
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: size == 1, setting det_result\n");
+        fflush(stderr);
         unified_mpoly_set(det_result, mpoly_matrix[0][0]);
+        recursion_depth--;
         return;
     }
     
     if (size == 2) {
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: size == 2, initializing temporaries\n");
+        fflush(stderr);
         unified_mpoly_t ad, bc, tmp;
         ad = unified_mpoly_init(ctx);
         bc = unified_mpoly_init(ctx);
         tmp = unified_mpoly_init(ctx);
         
-        /* det = a*d - b*c */
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: computing a*d\n");
+        fflush(stderr);
         unified_mpoly_mul(ad, mpoly_matrix[0][0], mpoly_matrix[1][1]);
+        
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: computing b*c\n");
+        fflush(stderr);
         unified_mpoly_mul(bc, mpoly_matrix[0][1], mpoly_matrix[1][0]);
         
         /* Special handling: Compute as det = ad + (-bc) instead of ad - bc */
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: negating bc\n");
+        fflush(stderr);
         unified_mpoly_neg(tmp, bc);
+        
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: adding ad + (-bc)\n");
+        fflush(stderr);
         unified_mpoly_add(det_result, ad, tmp);
         
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: cleaning up temporaries\n");
+        fflush(stderr);
         unified_mpoly_clear(ad);
         unified_mpoly_clear(bc);
         unified_mpoly_clear(tmp);
+        
+        recursion_depth--;
         return;
     }
     
     if (size == 3) {
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det_recursive: size == 3, calling compute_det_3x3_unified\n");
+        fflush(stderr);
         compute_det_3x3_unified(det_result, mpoly_matrix, ctx);
+        recursion_depth--;
         return;
     }
     
@@ -467,6 +517,35 @@ void compute_unified_mpoly_det(unified_mpoly_t det_result,
                               slong size,
                               unified_mpoly_ctx_t ctx,
                               int use_parallel) {
+    
+    fprintf(stderr, "[DEBUG] compute_unified_mpoly_det: ENTERED, size=%ld\n", size);
+    fflush(stderr);
+    
+    /* Ensure all matrix elements have consistent bits */
+    if (ctx->field_ctx->field_id == FIELD_ID_NMOD) {
+        fprintf(stderr, "[DEBUG] compute_unified_mpoly_det: repacking matrix elements\n");
+        fflush(stderr);
+        nmod_mpoly_ctx_struct *nmod_ctx = GET_NMOD_CTX(ctx);
+        for (slong i = 0; i < size; i++) {
+            for (slong j = 0; j < size; j++) {
+                nmod_mpoly_struct *poly_elem = GET_NMOD_POLY(mpoly_matrix[i][j]);
+                if (poly_elem->bits != MPOLY_MIN_BITS) {
+                    fprintf(stderr, "[DEBUG] compute_unified_mpoly_det: repacking [%ld][%ld]: bits=%lu->%lu\n", 
+                            i, j, (unsigned long)poly_elem->bits, (unsigned long)MPOLY_MIN_BITS);
+                    fflush(stderr);
+                    nmod_mpoly_repack_bits_inplace(poly_elem, MPOLY_MIN_BITS, nmod_ctx);
+                }
+            }
+        }
+    }
+    
+    /* On Android platform, always use sequential computation to avoid OpenMP compatibility issues */
+#if defined(__ANDROID__)
+    fprintf(stderr, "[DEBUG] compute_unified_mpoly_det: Android platform, using sequential computation\n");
+    fflush(stderr);
+    compute_unified_mpoly_det_recursive(det_result, mpoly_matrix, size, ctx);
+    return;
+#endif
     
     /* Special case: 3x3 matrix with parallel computation available */
     #ifdef _OPENMP

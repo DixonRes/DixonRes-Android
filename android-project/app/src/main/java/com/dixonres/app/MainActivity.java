@@ -46,8 +46,8 @@ public class MainActivity extends Activity {
         tvResult = (TextView) findViewById(R.id.tv_result);
 
         // Set default values for testing (very simple case)
-        etInput.setText("x, y");
-        etVars.setText("x,y");
+        etInput.setText("x+y, x*y");
+        etVars.setText("x");
         etModulus.setText("101");
 
         btnRun.setOnClickListener(new View.OnClickListener() {

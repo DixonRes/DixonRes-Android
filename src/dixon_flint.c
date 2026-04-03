@@ -232,6 +232,7 @@ void perform_fq_matrix_row_operations_mvpoly(fq_mvpoly_t ***new_matrix, fq_mvpol
             fflush(stderr);
             
             fq_mvpoly_t diff;
+            fq_mvpoly_init(&diff, 2*nvars, npars, (*original_matrix)[i][j].ctx);
             fprintf(stderr, "[DEBUG]     Computing diff...\n");
             fflush(stderr);
             fq_mvpoly_sub(&diff, &(*original_matrix)[i][j], &(*original_matrix)[i-1][j]);
@@ -443,9 +444,26 @@ void compute_fq_coefficient_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **coeff_
         printf("Time: %.3f seconds\n", elapsed);
     }
 
-    if (g_field_equation_reduction) {
-        fq_mvpoly_reduce_field_equation(result);
+    fprintf(stderr, "[DEBUG] Resultant before field equation reduction:\n");
+    if (result->nterms <= 100) {
+        fq_mvpoly_print_expanded(result, "Resultant", 0);
+    } else {
+        fprintf(stderr, "[DEBUG] Resultant too large to display (%ld terms)\n", result->nterms);
     }
+    fflush(stderr);
+    
+    // Always reduce field equation to prevent exponent overflow
+    fprintf(stderr, "[DEBUG] Reducing field equation...\n");
+    fflush(stderr);
+    fq_mvpoly_reduce_field_equation(result);
+    
+    fprintf(stderr, "[DEBUG] Resultant after field equation reduction:\n");
+    if (result->nterms <= 100) {
+        fq_mvpoly_print_expanded(result, "Resultant", 0);
+    } else {
+        fprintf(stderr, "[DEBUG] Resultant too large to display (%ld terms)\n", result->nterms);
+    }
+    fflush(stderr);
 }
 
 // Extended tracker structure with pre-allocated workspace
@@ -1720,6 +1738,21 @@ void extract_fq_coefficient_matrix_from_dixon(fq_mvpoly_t ***coeff_matrix,
         
         fq_nmod_mat_clear(eval_mat, dixon_poly->ctx);
     } else {
+#if defined(__ANDROID__)
+        // On Android platform, use simple approach: take first min(nx_monoms, ndual_monoms) rows and columns
+        fprintf(stderr, "[DEBUG] Android platform: using simple submatrix selection (avoiding find_fq_optimal_maximal_rank_submatrix)\n");
+        fflush(stderr);
+        slong min_size = FLINT_MIN(nx_monoms, ndual_monoms);
+        row_idx_array = (slong*) flint_malloc(min_size * sizeof(slong));
+        col_idx_array = (slong*) flint_malloc(min_size * sizeof(slong));
+        
+        for (slong i = 0; i < min_size; i++) {
+            row_idx_array[i] = i;
+            col_idx_array[i] = i;
+        }
+        num_rows = min_size;
+        num_cols = min_size;
+#else
         slong small_size = 1;
         if (nx_monoms < small_size && ndual_monoms < small_size && 
             expected_rows < small_size && expected_cols < small_size) {
@@ -1739,6 +1772,7 @@ void extract_fq_coefficient_matrix_from_dixon(fq_mvpoly_t ***coeff_matrix,
                                                   &num_rows, &num_cols,
                                                   npars);
         }
+#endif
     }
 
     slong submat_rank = FLINT_MIN(num_rows, num_cols);
@@ -1822,10 +1856,80 @@ void compute_fq_cancel_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **modified_M_
     fprintf(stderr, "[DEBUG] compute_fq_cancel_matrix_det: START nvars=%ld, npars=%ld\n", nvars, npars);
     fflush(stderr);
     
+    slong size = nvars + 1;
+    
+#if defined(__ANDROID__)
+    // On Android platform, for small matrices, compute determinant directly using fq_mvpoly
+    if (size == 2) {
+        fprintf(stderr, "[DEBUG] Android platform: size == 2, computing determinant directly using fq_mvpoly\n");
+        fflush(stderr);
+        
+        fprintf(stderr, "[DEBUG] modified_M_mvpoly[0][0] details:\n");
+        fflush(stderr);
+        fq_mvpoly_print_expanded(&modified_M_mvpoly[0][0], "a", 1);
+        
+        fprintf(stderr, "[DEBUG] modified_M_mvpoly[0][1] details:\n");
+        fflush(stderr);
+        fq_mvpoly_print_expanded(&modified_M_mvpoly[0][1], "b", 1);
+        
+        fprintf(stderr, "[DEBUG] modified_M_mvpoly[1][0] details:\n");
+        fflush(stderr);
+        fq_mvpoly_print_expanded(&modified_M_mvpoly[1][0], "c", 1);
+        
+        fprintf(stderr, "[DEBUG] modified_M_mvpoly[1][1] details:\n");
+        fflush(stderr);
+        fq_mvpoly_print_expanded(&modified_M_mvpoly[1][1], "d", 1);
+        
+        fq_mvpoly_t ad, bc, temp_result;
+        fq_mvpoly_init(&ad, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&bc, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&temp_result, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        
+        fprintf(stderr, "[DEBUG] Computing a*d\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&ad, &modified_M_mvpoly[0][0], &modified_M_mvpoly[1][1]);
+        fprintf(stderr, "[DEBUG] ad = ");
+        fq_mvpoly_print_expanded(&ad, "ad", 1);
+        
+        fprintf(stderr, "[DEBUG] Computing b*c\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&bc, &modified_M_mvpoly[0][1], &modified_M_mvpoly[1][0]);
+        fprintf(stderr, "[DEBUG] bc = ");
+        fq_mvpoly_print_expanded(&bc, "bc", 1);
+        
+        fprintf(stderr, "[DEBUG] Computing ad - bc\n");
+        fflush(stderr);
+        fq_mvpoly_sub(&temp_result, &ad, &bc);
+        fprintf(stderr, "[DEBUG] ad - bc = ");
+        fq_mvpoly_print_expanded(&temp_result, "temp_result", 1);
+        
+        fprintf(stderr, "[DEBUG] Copying to result\n");
+        fflush(stderr);
+        // Directly initialize result without clearing
+        fq_mvpoly_init(result, nvars, npars, temp_result.ctx);
+        for (slong i = 0; i < temp_result.nterms; i++) {
+            fq_mvpoly_add_term(result, temp_result.terms[i].var_exp, temp_result.terms[i].par_exp, temp_result.terms[i].coeff);
+        }
+        
+        fprintf(stderr, "[DEBUG] Cleaning up\n");
+        fflush(stderr);
+        fq_mvpoly_clear(&ad);
+        fq_mvpoly_clear(&bc);
+        fq_mvpoly_clear(&temp_result);
+        
+        fprintf(stderr, "[DEBUG] Android platform: direct determinant computation completed\n");
+        fflush(stderr);
+        
+        fprintf(stderr, "[DEBUG] compute_fq_cancel_matrix_det: END\n");
+        fflush(stderr);
+        return;
+    }
+#endif
+    
     clock_t start = clock();
-    fprintf(stderr, "[DEBUG] About to call compute_fq_det_recursive with size=%ld\n", nvars + 1);
+    fprintf(stderr, "[DEBUG] About to call compute_fq_det_recursive with size=%ld\n", size);
     fflush(stderr);
-    compute_fq_det_recursive(result, modified_M_mvpoly, nvars + 1);
+    compute_fq_det_recursive(result, modified_M_mvpoly, size);
     fprintf(stderr, "[DEBUG] compute_fq_det_recursive returned\n");
     fflush(stderr);
     clock_t end = clock();
@@ -1925,6 +2029,7 @@ slong dixon_matrix_size(slong nvars, slong degree, ulong prime, slong field_degr
     
     // Compute determinant to get Dixon polynomial
     fq_mvpoly_t d_poly;
+    fq_mvpoly_init(&d_poly, nvars, 0, M_mvpoly[0][0].ctx);
     compute_fq_cancel_matrix_det(&d_poly, modified_M_mvpoly, nvars, 0, DET_METHOD_RECURSIVE);
     
     // Calculate degree bounds
@@ -2013,8 +2118,108 @@ void fq_dixon_resultant(fq_mvpoly_t *result, fq_mvpoly_t *polys,
     perform_fq_matrix_row_operations_mvpoly(&modified_M_mvpoly, &M_mvpoly, nvars, npars);
     
     fq_mvpoly_t d_poly;
+    fq_mvpoly_init(&d_poly, nvars, npars, M_mvpoly[0][0].ctx);
     printf("Computing cancellation matrix determinant using recursive expansion...\n");
+    
+#if defined(__ANDROID__)
+    // On Android platform, for 2x2 or 3x3 matrix, compute determinant directly
+    if (nvars + 1 == 2) {
+        fprintf(stderr, "[DEBUG] Android platform: size == 2, computing determinant directly using fq_mvpoly\n");
+        fflush(stderr);
+        
+        fq_mvpoly_t ad, bc, temp_result;
+        fq_mvpoly_init(&ad, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&bc, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&temp_result, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        
+        fprintf(stderr, "[DEBUG] Computing a*d\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&ad, &modified_M_mvpoly[0][0], &modified_M_mvpoly[1][1]);
+        
+        fprintf(stderr, "[DEBUG] Computing b*c\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&bc, &modified_M_mvpoly[0][1], &modified_M_mvpoly[1][0]);
+        
+        fprintf(stderr, "[DEBUG] Computing ad - bc\n");
+        fflush(stderr);
+        fq_mvpoly_sub(&temp_result, &ad, &bc);
+        
+        fprintf(stderr, "[DEBUG] Copying to d_poly\n");
+        fflush(stderr);
+        // Directly add terms from temp_result to d_poly
+        for (slong i = 0; i < temp_result.nterms; i++) {
+            fq_mvpoly_add_term(&d_poly, temp_result.terms[i].var_exp, temp_result.terms[i].par_exp, temp_result.terms[i].coeff);
+        }
+        
+        fq_mvpoly_clear(&ad);
+        fq_mvpoly_clear(&bc);
+        fq_mvpoly_clear(&temp_result);
+    } else if (nvars + 1 == 3) {
+        fprintf(stderr, "[DEBUG] Android platform: size == 3, computing determinant directly using fq_mvpoly\n");
+        fflush(stderr);
+        
+        // 3x3 determinant formula: a(ei − fh) − b(di − fg) + c(dh − eg)
+        fq_mvpoly_t t1, t2, t3, t4, t5, t6, term1, term2, term3, temp_result;
+        fq_mvpoly_init(&t1, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t2, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t3, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t4, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t5, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t6, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term1, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term2, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term3, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&temp_result, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        
+        fprintf(stderr, "[DEBUG] Computing term 1: a*(e*i - f*h)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t1, &modified_M_mvpoly[1][1], &modified_M_mvpoly[2][2]);
+        fq_mvpoly_mul(&t2, &modified_M_mvpoly[1][2], &modified_M_mvpoly[2][1]);
+        fq_mvpoly_sub(&t3, &t1, &t2);
+        fq_mvpoly_mul(&term1, &modified_M_mvpoly[0][0], &t3);
+        
+        fprintf(stderr, "[DEBUG] Computing term 2: b*(d*i - f*g)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t4, &modified_M_mvpoly[1][0], &modified_M_mvpoly[2][2]);
+        fq_mvpoly_mul(&t5, &modified_M_mvpoly[1][2], &modified_M_mvpoly[2][0]);
+        fq_mvpoly_sub(&t6, &t4, &t5);
+        fq_mvpoly_mul(&term2, &modified_M_mvpoly[0][1], &t6);
+        
+        fprintf(stderr, "[DEBUG] Computing term 3: c*(d*h - e*g)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t1, &modified_M_mvpoly[1][0], &modified_M_mvpoly[2][1]);
+        fq_mvpoly_mul(&t2, &modified_M_mvpoly[1][1], &modified_M_mvpoly[2][0]);
+        fq_mvpoly_sub(&t3, &t1, &t2);
+        fq_mvpoly_mul(&term3, &modified_M_mvpoly[0][2], &t3);
+        
+        fprintf(stderr, "[DEBUG] Combining terms: term1 - term2 + term3\n");
+        fflush(stderr);
+        fq_mvpoly_sub(&temp_result, &term1, &term2);
+        fq_mvpoly_add(&temp_result, &temp_result, &term3);
+        
+        fprintf(stderr, "[DEBUG] Copying to d_poly, nterms=%ld\n", temp_result.nterms);
+        fflush(stderr);
+        // Directly add terms from temp_result to d_poly
+        for (slong i = 0; i < temp_result.nterms; i++) {
+            fq_mvpoly_add_term(&d_poly, temp_result.terms[i].var_exp, temp_result.terms[i].par_exp, temp_result.terms[i].coeff);
+        }
+        
+        fq_mvpoly_clear(&t1);
+        fq_mvpoly_clear(&t2);
+        fq_mvpoly_clear(&t3);
+        fq_mvpoly_clear(&t4);
+        fq_mvpoly_clear(&t5);
+        fq_mvpoly_clear(&t6);
+        fq_mvpoly_clear(&term1);
+        fq_mvpoly_clear(&term2);
+        fq_mvpoly_clear(&term3);
+        fq_mvpoly_clear(&temp_result);
+    } else {
+        compute_fq_cancel_matrix_det(&d_poly, modified_M_mvpoly, nvars, npars, DET_METHOD_RECURSIVE);
+    }
+#else
     compute_fq_cancel_matrix_det(&d_poly, modified_M_mvpoly, nvars, npars, DET_METHOD_RECURSIVE);
+#endif
     
     if (d_poly.nterms <= 100) {
         printf("Dixon polynomial: %ld terms\n", d_poly.nterms);
@@ -2119,6 +2324,19 @@ void fq_dixon_resultant_with_names(fq_mvpoly_t *result, fq_mvpoly_t *polys,
     fprintf(stderr, "[DEBUG] Perform Matrix Row Operations\n");
     perform_fq_matrix_row_operations_mvpoly(&modified_M_mvpoly, &M_mvpoly, nvars, npars);
     fprintf(stderr, "[DEBUG] Matrix Row Operations completed\n");
+    
+    // Print modified_M_mvpoly for debugging
+    fprintf(stderr, "[DEBUG] Modified M matrix contents:\n");
+    fflush(stderr);
+    slong size = nvars + 1;
+    for (slong i = 0; i < size; i++) {
+        for (slong j = 0; j < size; j++) {
+            fprintf(stderr, "[DEBUG] modified_M_mvpoly[%ld][%ld]:\n", i, j);
+            fflush(stderr);
+            fq_mvpoly_print_with_names(&modified_M_mvpoly[i][j], "Elem", var_names, par_names, gen_name, 1);
+            fflush(stderr);
+        }
+    }
 
     fq_mvpoly_t d_poly;
     fprintf(stderr, "[DEBUG] Computing cancellation matrix determinant using recursive expansion...\n");
@@ -2129,17 +2347,133 @@ void fq_dixon_resultant_with_names(fq_mvpoly_t *result, fq_mvpoly_t *polys,
             modified_M_mvpoly[0][0].nvars, modified_M_mvpoly[0][0].npars, (void*)modified_M_mvpoly[0][0].ctx);
     fflush(stderr);
     
+#if defined(__ANDROID__)
+    // On Android platform, for 2x2 or 3x3 matrix, compute determinant directly
+    if (nvars + 1 == 2) {
+        fprintf(stderr, "[DEBUG] Android platform: size == 2, computing determinant directly using fq_mvpoly\n");
+        fflush(stderr);
+        
+        fq_mvpoly_t ad, bc, temp_result;
+        fq_mvpoly_init(&ad, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&bc, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&temp_result, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        
+        fprintf(stderr, "[DEBUG] Computing a*d\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&ad, &modified_M_mvpoly[0][0], &modified_M_mvpoly[1][1]);
+        
+        fprintf(stderr, "[DEBUG] Computing b*c\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&bc, &modified_M_mvpoly[0][1], &modified_M_mvpoly[1][0]);
+        
+        fprintf(stderr, "[DEBUG] Computing ad - bc\n");
+        fflush(stderr);
+        fq_mvpoly_sub(&temp_result, &ad, &bc);
+        
+        fprintf(stderr, "[DEBUG] Copying to d_poly\n");
+        fflush(stderr);
+        fq_mvpoly_init(&d_poly, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        // Directly add terms from temp_result to d_poly
+        for (slong i = 0; i < temp_result.nterms; i++) {
+            fq_mvpoly_add_term(&d_poly, temp_result.terms[i].var_exp, temp_result.terms[i].par_exp, temp_result.terms[i].coeff);
+        }
+        
+        fq_mvpoly_clear(&ad);
+        fq_mvpoly_clear(&bc);
+        fq_mvpoly_clear(&temp_result);
+    } else if (nvars + 1 == 3) {
+        fprintf(stderr, "[DEBUG] Android platform: size == 3, computing determinant directly using fq_mvpoly\n");
+        fflush(stderr);
+        
+        // 3x3 determinant formula: a(ei − fh) − b(di − fg) + c(dh − eg)
+        fq_mvpoly_t t1, t2, t3, t4, t5, t6, term1, term2, term3, temp_result;
+        fq_mvpoly_init(&t1, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t2, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t3, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t4, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t5, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&t6, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term1, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term2, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&term3, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        fq_mvpoly_init(&temp_result, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        
+        fprintf(stderr, "[DEBUG] Computing term 1: a*(e*i - f*h)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t1, &modified_M_mvpoly[1][1], &modified_M_mvpoly[2][2]);
+        fq_mvpoly_mul(&t2, &modified_M_mvpoly[1][2], &modified_M_mvpoly[2][1]);
+        fq_mvpoly_sub(&t3, &t1, &t2);
+        fq_mvpoly_mul(&term1, &modified_M_mvpoly[0][0], &t3);
+        
+        fprintf(stderr, "[DEBUG] Computing term 2: b*(d*i - f*g)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t4, &modified_M_mvpoly[1][0], &modified_M_mvpoly[2][2]);
+        fq_mvpoly_mul(&t5, &modified_M_mvpoly[1][2], &modified_M_mvpoly[2][0]);
+        fq_mvpoly_sub(&t6, &t4, &t5);
+        fq_mvpoly_mul(&term2, &modified_M_mvpoly[0][1], &t6);
+        
+        fprintf(stderr, "[DEBUG] Computing term 3: c*(d*h - e*g)\n");
+        fflush(stderr);
+        fq_mvpoly_mul(&t1, &modified_M_mvpoly[1][0], &modified_M_mvpoly[2][1]);
+        fq_mvpoly_mul(&t2, &modified_M_mvpoly[1][1], &modified_M_mvpoly[2][0]);
+        fq_mvpoly_sub(&t3, &t1, &t2);
+        fq_mvpoly_mul(&term3, &modified_M_mvpoly[0][2], &t3);
+        
+        fprintf(stderr, "[DEBUG] Combining terms: term1 - term2 + term3\n");
+        fflush(stderr);
+        fq_mvpoly_sub(&temp_result, &term1, &term2);
+        fq_mvpoly_add(&temp_result, &temp_result, &term3);
+        
+        fprintf(stderr, "[DEBUG] Copying to d_poly, nterms=%ld\n", temp_result.nterms);
+        fflush(stderr);
+        fq_mvpoly_init(&d_poly, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        // Directly add terms from temp_result to d_poly
+        for (slong i = 0; i < temp_result.nterms; i++) {
+            fq_mvpoly_add_term(&d_poly, temp_result.terms[i].var_exp, temp_result.terms[i].par_exp, temp_result.terms[i].coeff);
+        }
+        
+        fq_mvpoly_clear(&t1);
+        fq_mvpoly_clear(&t2);
+        fq_mvpoly_clear(&t3);
+        fq_mvpoly_clear(&t4);
+        fq_mvpoly_clear(&t5);
+        fq_mvpoly_clear(&t6);
+        fq_mvpoly_clear(&term1);
+        fq_mvpoly_clear(&term2);
+        fq_mvpoly_clear(&term3);
+        fq_mvpoly_clear(&temp_result);
+    } else {
+        fprintf(stderr, "[DEBUG] About to call compute_fq_cancel_matrix_det...\n");
+        fflush(stderr);
+        fq_mvpoly_init(&d_poly, nvars, npars, modified_M_mvpoly[0][0].ctx);
+        compute_fq_cancel_matrix_det(&d_poly, modified_M_mvpoly, nvars, npars, DET_METHOD_RECURSIVE);
+    }
+#else
     fprintf(stderr, "[DEBUG] About to call compute_fq_cancel_matrix_det...\n");
     fflush(stderr);
+    fq_mvpoly_init(&d_poly, nvars, npars, modified_M_mvpoly[0][0].ctx);
     compute_fq_cancel_matrix_det(&d_poly, modified_M_mvpoly, nvars, npars, DET_METHOD_RECURSIVE);
+#endif
     fprintf(stderr, "[DEBUG] Cancellation matrix determinant computed\n");
     fflush(stderr);
     
     if (d_poly.nterms <= 100) {
         fprintf(stderr, "[DEBUG] Dixon polynomial: %ld terms\n", d_poly.nterms);
-        // fq_mvpoly_print_with_names(&d_poly, "DixonPoly", var_names, par_names, gen_name, 1);
+        fq_mvpoly_print_with_names(&d_poly, "DixonPoly", var_names, par_names, gen_name, 1);
     } else {
         fprintf(stderr, "[DEBUG] Dixon polynomial: %ld terms (not shown)\n", d_poly.nterms);
+    }
+    
+    // Always reduce field equation to prevent exponent overflow in Dixon polynomial
+    fprintf(stderr, "[DEBUG] Reducing Dixon polynomial exponents...\n");
+    fflush(stderr);
+    fq_mvpoly_reduce_field_equation(&d_poly);
+    
+    if (d_poly.nterms <= 100) {
+        fprintf(stderr, "[DEBUG] Dixon polynomial after reduction: %ld terms\n", d_poly.nterms);
+        fq_mvpoly_print_with_names(&d_poly, "DixonPoly (reduced)", var_names, par_names, gen_name, 1);
+    } else {
+        fprintf(stderr, "[DEBUG] Dixon polynomial after reduction: %ld terms (not shown)\n", d_poly.nterms);
     }
     fprintf(stderr, "[DEBUG] Time: %.3f seconds\n", (double)(clock() - step1_start) / CLOCKS_PER_SEC);
     
@@ -2183,7 +2517,8 @@ void fq_dixon_resultant_with_names(fq_mvpoly_t *result, fq_mvpoly_t *polys,
         fprintf(stderr, "[DEBUG] Coefficient matrix determinant computed\n");
         
         if (result->nterms <= 100) {
-            // fq_mvpoly_print_with_names(result, "Final Resultant", NULL, par_names, gen_name, 0);
+            fprintf(stderr, "[DEBUG] Resultant before making monic:\n");
+            fq_mvpoly_print_with_names(result, "Resultant", NULL, par_names, gen_name, 0);
         } else {
             fprintf(stderr, "[DEBUG] Final resultant too large to display (%ld terms)\n", result->nterms);
         }

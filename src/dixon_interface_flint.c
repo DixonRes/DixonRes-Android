@@ -1063,10 +1063,15 @@ char* compute_dixon_internal_with_file(const char **poly_strings, slong npoly_st
                                  state.var_names, state.par_names, gen_name);
     fprintf(stderr, "[DEBUG] compute_dixon_internal_with_file: fq_dixon_resultant_with_names returned\n");
 
+#if !defined(__ANDROID__)
+    // On Android platform, skip root finding to avoid memory issues with high-degree polynomials
     // Find roots with proper parameter names
     fprintf(stderr, "[DEBUG] compute_dixon_internal_with_file: calling find_and_print_roots_of_univariate_resultant_with_file\n");
     find_and_print_roots_of_univariate_resultant_with_file(&dixon_result_poly, &state, fp_file, print_to_stdout);
     fprintf(stderr, "[DEBUG] compute_dixon_internal_with_file: find_and_print_roots_of_univariate_resultant_with_file returned\n");
+#else
+    fprintf(stderr, "[DEBUG] compute_dixon_internal_with_file: Android platform, skipping root finding\n");
+#endif
     
     // Convert result to string with original parameter names
     char *result_string;
@@ -2038,7 +2043,7 @@ char* dixon_with_file(const char **poly_strings, slong num_polys, const char **e
     char **remaining_vars = NULL;
     slong num_remaining = 0;
     
-    fprintf(stderr, "[DEBUG] Calling compute_dixon_internal_with_file... [BUILD v40 - manual exp for y]\n");
+    fprintf(stderr, "[DEBUG] Calling compute_dixon_internal_with_file... [BUILD v68 - avoid submatrix search]\n");
     fflush(stderr);
     
     // Check parameters before calling

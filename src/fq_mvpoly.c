@@ -43,25 +43,47 @@ void fq_mvpoly_reduce_field_equation(fq_mvpoly_t *poly)
         q *= (slong)p;
     }
 
-    if (q <= 1) return; /* nothing to reduce */
+    fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: p=%lu, d=%ld, q=%ld\n", 
+            p, d, q);
+    fflush(stderr);
+
+    if (q <= 1) {
+        fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: q <= 1, nothing to reduce\n");
+        fflush(stderr);
+        return; /* nothing to reduce */
+    }
 
     /* Apply the exponent reduction to every term in-place */
+    fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: reducing %ld terms\n", poly->nterms);
+    fflush(stderr);
     for (slong i = 0; i < poly->nterms; i++) {
         if (poly->terms[i].var_exp) {
-            for (slong k = 0; k < poly->nvars; k++)
+            for (slong k = 0; k < poly->nvars; k++) {
+                slong old_exp = poly->terms[i].var_exp[k];
                 poly->terms[i].var_exp[k] =
                     reduce_exp_field(poly->terms[i].var_exp[k], q);
+                fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: var[%ld], term[%ld]: %ld -> %ld\n", 
+                        k, i, old_exp, poly->terms[i].var_exp[k]);
+                fflush(stderr);
+            }
         }
         if (poly->terms[i].par_exp) {
-            for (slong k = 0; k < poly->npars; k++)
+            for (slong k = 0; k < poly->npars; k++) {
+                slong old_exp = poly->terms[i].par_exp[k];
                 poly->terms[i].par_exp[k] =
                     reduce_exp_field(poly->terms[i].par_exp[k], q);
+                fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: par[%ld], term[%ld]: %ld -> %ld\n", 
+                        k, i, old_exp, poly->terms[i].par_exp[k]);
+                fflush(stderr);
+            }
         }
     }
 
     /* Re-combine like terms that may now share the same monomial.
      * Build a fresh polynomial by re-inserting every term through add_term
      * (which handles duplicate detection and coefficient accumulation). */
+    fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: re-combining terms\n");
+    fflush(stderr);
     fq_mvpoly_t combined;
     fq_mvpoly_init(&combined, poly->nvars, poly->npars, poly->ctx);
     for (slong i = 0; i < poly->nterms; i++) {
@@ -72,6 +94,9 @@ void fq_mvpoly_reduce_field_equation(fq_mvpoly_t *poly)
     }
     fq_mvpoly_clear(poly);
     *poly = combined;
+    
+    fprintf(stderr, "[DEBUG] fq_mvpoly_reduce_field_equation: completed, new nterms=%ld\n", poly->nterms);
+    fflush(stderr);
 }
 
 /* ============================================================================
@@ -773,6 +798,66 @@ void fq_mvpoly_sub_optimized(fq_mvpoly_t *result, const fq_mvpoly_t *a, const fq
 
 /* Also optimize fq_mvpoly_add function */
 void fq_mvpoly_add(fq_mvpoly_t *result, const fq_mvpoly_t *a, const fq_mvpoly_t *b) {
+#if defined(__ANDROID__)
+    // On Android platform, use simple implementation without using fq_nmod_mpoly
+    if (a->nterms == 0 && b->nterms == 0) {
+        if (result->terms != NULL) {
+            fq_mvpoly_clear(result);
+        }
+        fq_mvpoly_init(result, a->nvars, a->npars, a->ctx);
+        return;
+    }
+    
+    // If result is a or b, we need to make a copy
+    const fq_mvpoly_t *a_copy = a;
+    const fq_mvpoly_t *b_copy = b;
+    
+    fq_mvpoly_t temp_a, temp_b;
+    int free_a = 0;
+    int free_b = 0;
+    
+    if (result == a) {
+        fq_mvpoly_init(&temp_a, a->nvars, a->npars, a->ctx);
+        for (slong i = 0; i < a->nterms; i++) {
+            fq_mvpoly_add_term(&temp_a, a->terms[i].var_exp, a->terms[i].par_exp, a->terms[i].coeff);
+        }
+        a_copy = &temp_a;
+        free_a = 1;
+    }
+    
+    if (result == b) {
+        fq_mvpoly_init(&temp_b, b->nvars, b->npars, b->ctx);
+        for (slong i = 0; i < b->nterms; i++) {
+            fq_mvpoly_add_term(&temp_b, b->terms[i].var_exp, b->terms[i].par_exp, b->terms[i].coeff);
+        }
+        b_copy = &temp_b;
+        free_b = 1;
+    }
+    
+    // Clear result and initialize
+    if (result->terms != NULL) {
+        fq_mvpoly_clear(result);
+    }
+    fq_mvpoly_init(result, a_copy->nvars, a_copy->npars, a_copy->ctx);
+    
+    // Add all terms from a
+    for (slong i = 0; i < a_copy->nterms; i++) {
+        fq_mvpoly_add_term(result, a_copy->terms[i].var_exp, a_copy->terms[i].par_exp, a_copy->terms[i].coeff);
+    }
+    
+    // Add all terms from b
+    for (slong i = 0; i < b_copy->nterms; i++) {
+        fq_mvpoly_add_term(result, b_copy->terms[i].var_exp, b_copy->terms[i].par_exp, b_copy->terms[i].coeff);
+    }
+    
+    // Clean up copies
+    if (free_a) {
+        fq_mvpoly_clear(&temp_a);
+    }
+    if (free_b) {
+        fq_mvpoly_clear(&temp_b);
+    }
+#else
     if (a->nterms == 0 && b->nterms == 0) {
         if (result->terms != NULL) {
             fq_mvpoly_clear(result);
@@ -825,10 +910,74 @@ void fq_mvpoly_add(fq_mvpoly_t *result, const fq_mvpoly_t *a, const fq_mvpoly_t 
     fq_nmod_mpoly_clear(mpoly_b, mpoly_ctx);
     fq_nmod_mpoly_clear(mpoly_result, mpoly_ctx);
     fq_nmod_mpoly_ctx_clear(mpoly_ctx);
+#endif
 }
 
 void fq_mvpoly_sub(fq_mvpoly_t *result, const fq_mvpoly_t *a, const fq_mvpoly_t *b) {
-
+#if defined(__ANDROID__)
+    // On Android platform, use simple implementation without using fq_nmod_mpoly
+    if (a->nterms == 0 && b->nterms == 0) {
+        if (result->terms != NULL) {
+            fq_mvpoly_clear(result);
+        }
+        fq_mvpoly_init(result, a->nvars, a->npars, a->ctx);
+        return;
+    }
+    
+    // If result is a or b, we need to make a copy
+    const fq_mvpoly_t *a_copy = a;
+    const fq_mvpoly_t *b_copy = b;
+    
+    fq_mvpoly_t temp_a, temp_b;
+    int free_a = 0;
+    int free_b = 0;
+    
+    if (result == a) {
+        fq_mvpoly_init(&temp_a, a->nvars, a->npars, a->ctx);
+        for (slong i = 0; i < a->nterms; i++) {
+            fq_mvpoly_add_term(&temp_a, a->terms[i].var_exp, a->terms[i].par_exp, a->terms[i].coeff);
+        }
+        a_copy = &temp_a;
+        free_a = 1;
+    }
+    
+    if (result == b) {
+        fq_mvpoly_init(&temp_b, b->nvars, b->npars, b->ctx);
+        for (slong i = 0; i < b->nterms; i++) {
+            fq_mvpoly_add_term(&temp_b, b->terms[i].var_exp, b->terms[i].par_exp, b->terms[i].coeff);
+        }
+        b_copy = &temp_b;
+        free_b = 1;
+    }
+    
+    // Clear result and initialize
+    if (result->terms != NULL) {
+        fq_mvpoly_clear(result);
+    }
+    fq_mvpoly_init(result, a_copy->nvars, a_copy->npars, a_copy->ctx);
+    
+    // Add all terms from a
+    for (slong i = 0; i < a_copy->nterms; i++) {
+        fq_mvpoly_add_term(result, a_copy->terms[i].var_exp, a_copy->terms[i].par_exp, a_copy->terms[i].coeff);
+    }
+    
+    // Add all terms from b with negative coefficients
+    for (slong i = 0; i < b_copy->nterms; i++) {
+        fq_nmod_t neg_coeff;
+        fq_nmod_init(neg_coeff, b_copy->ctx);
+        fq_nmod_neg(neg_coeff, b_copy->terms[i].coeff, b_copy->ctx);
+        fq_mvpoly_add_term(result, b_copy->terms[i].var_exp, b_copy->terms[i].par_exp, neg_coeff);
+        fq_nmod_clear(neg_coeff, b_copy->ctx);
+    }
+    
+    // Clean up copies
+    if (free_a) {
+        fq_mvpoly_clear(&temp_a);
+    }
+    if (free_b) {
+        fq_mvpoly_clear(&temp_b);
+    }
+#else
     if (a->nterms == 0 && b->nterms == 0) {
         if (result->terms != NULL) {
             fq_mvpoly_clear(result);
@@ -892,6 +1041,7 @@ void fq_mvpoly_sub(fq_mvpoly_t *result, const fq_mvpoly_t *a, const fq_mvpoly_t 
     fq_nmod_mpoly_clear(mpoly_b, mpoly_ctx);
     fq_nmod_mpoly_clear(mpoly_result, mpoly_ctx);
     fq_nmod_mpoly_ctx_clear(mpoly_ctx);
+#endif
 }
 
 void print_fq_matrix_mvpoly(fq_mvpoly_t **matrix, slong nrows, slong ncols, 
