@@ -141,30 +141,20 @@ cp dixon "$PROJECT_DIR/android-project/app/src/main/assets/"
 # Copy test programs
 cp test-gmp test-mpfr test-flint "$PROJECT_DIR/android-project/app/src/main/assets/"
 
-# Copy libraries to jniLibs
-mkdir -p "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-
-# Copy all FLINT library files
-cp "$PROJECT_DIR/libs/arm64-v8a/libflint.so" "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-cp "$PROJECT_DIR/libs/arm64-v8a/libflint.so.22" "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-cp "$PROJECT_DIR/libs/arm64-v8a/libflint.so.22.0.0" "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-
-# Copy other libraries
-cp "$PROJECT_DIR/libs/arm64-v8a/libgmp.so" "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-cp "$PROJECT_DIR/libs/arm64-v8a/libmpfr.so" "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
+# Copy libraries to jniLibs (this is what gets packaged in the APK root, we don't want arm64-v8a here)
+# Instead, we'll only copy libraries to assets/lib/arm64-v8a
 
 # Also copy libraries to assets/lib/arm64-v8a for direct copying
 mkdir -p "$PROJECT_DIR/android-project/app/src/main/assets/lib/arm64-v8a/"
-cp "$PROJECT_DIR/libs/arm64-v8a/libflint.so" "$PROJECT_DIR/android-project/app/src/main/assets/lib/arm64-v8a/"
+# Copy only necessary library files - keep only libflint.so.22 (the real library)
+# libflint.so is just a symlink, not needed
 cp "$PROJECT_DIR/libs/arm64-v8a/libflint.so.22" "$PROJECT_DIR/android-project/app/src/main/assets/lib/arm64-v8a/"
 cp "$PROJECT_DIR/libs/arm64-v8a/libgmp.so" "$PROJECT_DIR/android-project/app/src/main/assets/lib/arm64-v8a/"
 cp "$PROJECT_DIR/libs/arm64-v8a/libmpfr.so" "$PROJECT_DIR/android-project/app/src/main/assets/lib/arm64-v8a/"
 
 echo -e "${GREEN}All files copied!${NC}"
 echo "" 
-echo "=== Library structure ==="
-ls -la "$PROJECT_DIR/android-project/app/src/main/jniLibs/arm64-v8a/"
-echo ""
+
 
 echo -e "${YELLOW}Step 4: Building Android APK...${NC}"
 echo "========================================"

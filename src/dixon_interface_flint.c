@@ -2043,7 +2043,7 @@ char* dixon_with_file(const char **poly_strings, slong num_polys, const char **e
     char **remaining_vars = NULL;
     slong num_remaining = 0;
     
-    fprintf(stderr, "[DEBUG] Calling compute_dixon_internal_with_file... [BUILD v68 - avoid submatrix search]\n");
+    fprintf(stderr, "[DEBUG] Calling compute_dixon_internal_with_file... [BUILD v72 - fix APK lib structure]\n");
     fflush(stderr);
     
     // Check parameters before calling

@@ -351,6 +351,62 @@ void compute_fq_coefficient_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **coeff_
     } else if (npars == 1) {
         clock_t start = clock();
         
+#if defined(__ANDROID__)
+        // On Android platform, for npars=1, directly use FLINT's fq_nmod_poly_mat_det_iter
+        // This is more reliable and avoids our recursive algorithm's potential issues
+        fprintf(stderr, "[DEBUG] Android platform: using FLINT fq_nmod_poly_mat_det_iter for npars=1\n");
+        fflush(stderr);
+        
+        // Clear result before adding new terms
+        fq_mvpoly_clear(result);
+        fq_mvpoly_init(result, 0, npars, ctx);
+        
+        fq_nmod_poly_mat_t poly_mat;
+        fq_nmod_poly_mat_init(poly_mat, size, size, ctx);
+        
+        for (slong i = 0; i < size; i++) {
+            for (slong j = 0; j < size; j++) {
+                fq_nmod_poly_struct *entry = fq_nmod_poly_mat_entry(poly_mat, i, j);
+                fq_nmod_poly_zero(entry, ctx);
+                
+                for (slong t = 0; t < coeff_matrix[i][j].nterms; t++) {
+                    slong deg = coeff_matrix[i][j].terms[t].par_exp ? 
+                               coeff_matrix[i][j].terms[t].par_exp[0] : 0;
+                    fq_nmod_poly_set_coeff(entry, deg, 
+                                          coeff_matrix[i][j].terms[t].coeff, ctx);
+                }
+            }
+        }
+        
+        fq_nmod_poly_t det_poly;
+        fq_nmod_poly_init(det_poly, ctx);
+        
+        printf("Method: Mulders-Storjohann (FLINT)\n");
+        fprintf(stderr, "[DEBUG] About to compute determinant for %ldx%ld matrix\n", size, size);
+        fflush(stderr);
+        
+        fq_nmod_poly_mat_det_iter(det_poly, poly_mat, ctx);
+        
+        fprintf(stderr, "[DEBUG] Determinant computed successfully\n");
+        fflush(stderr);
+        
+        slong det_deg = fq_nmod_poly_degree(det_poly, ctx);
+        if (det_deg >= 0) {
+            for (slong i = 0; i <= det_deg; i++) {
+                fq_nmod_t coeff;
+                fq_nmod_init(coeff, ctx);
+                fq_nmod_poly_get_coeff(coeff, det_poly, i, ctx);
+                if (!fq_nmod_is_zero(coeff, ctx)) {
+                    slong par_exp[1] = {i};
+                    fq_mvpoly_add_term_fast(result, NULL, par_exp, coeff);
+                }
+                fq_nmod_clear(coeff, ctx);
+            }
+        }
+        
+        fq_nmod_poly_clear(det_poly, ctx);
+        fq_nmod_poly_mat_clear(poly_mat, ctx);
+#else
         if (method == DET_METHOD_INTERPOLATION) {
             printf("Method: interpolation\n");
             
@@ -400,6 +456,7 @@ void compute_fq_coefficient_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **coeff_
             fq_nmod_poly_clear(det_poly, ctx);
             fq_nmod_poly_mat_clear(poly_mat, ctx);
         }
+#endif
         
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
@@ -407,6 +464,13 @@ void compute_fq_coefficient_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **coeff_
         
     } else {
         clock_t start = clock();
+#if defined(__ANDROID__)
+        // On Android platform, always use recursive expansion to avoid compatibility issues
+        fprintf(stderr, "[DEBUG] Android platform: using recursive expansion for npars>1\n");
+        fflush(stderr);
+        printf("Method: recursive expansion\n");
+        compute_fq_det_recursive(result, coeff_matrix, size);
+#else
         switch (method) {
             case DET_METHOD_INTERPOLATION:
                 printf("Method: interpolation\n");
@@ -439,6 +503,7 @@ void compute_fq_coefficient_matrix_det(fq_mvpoly_t *result, fq_mvpoly_t **coeff_
                                                0, npars, ctx, res_deg_bound);
                 break;
         }
+#endif
         clock_t end = clock();
         double elapsed = (double)(end - start) / CLOCKS_PER_SEC;
         printf("Time: %.3f seconds\n", elapsed);

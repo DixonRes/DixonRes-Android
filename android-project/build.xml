@@ -59,11 +59,7 @@
         </exec>
         <mkdir dir="${bin.dir}/tmp" />
         <copy file="${bin.dir}/classes.dex" todir="${bin.dir}/tmp" />
-        <mkdir dir="${bin.dir}/lib/arm64-v8a" />
-        <copy file="app/src/main/jniLibs/arm64-v8a/libflint.so" todir="${bin.dir}/lib/arm64-v8a" />
-        <copy file="app/src/main/jniLibs/arm64-v8a/libflint.so.22" todir="${bin.dir}/lib/arm64-v8a" />
-        <copy file="app/src/main/jniLibs/arm64-v8a/libgmp.so" todir="${bin.dir}/lib/arm64-v8a" />
-        <copy file="app/src/main/jniLibs/arm64-v8a/libmpfr.so" todir="${bin.dir}/lib/arm64-v8a" />
+        <!-- Don't copy libraries to bin/lib - we'll use assets/lib/arm64-v8a instead -->
         <exec executable="${sdk.dir}/build-tools/debian/aapt" failonerror="true">
             <arg value="package" />
             <arg value="-f" />
@@ -78,7 +74,7 @@
             <arg value="-F" />
             <arg value="${bin.dir}/DixonRes-unaligned.apk" />
             <arg value="${bin.dir}/tmp" />
-            <arg value="${bin.dir}/lib" />
+            <!-- Don't include lib directory - libraries are in assets -->
         </exec>
         <exec executable="${sdk.dir}/build-tools/debian/zipalign" failonerror="true">
             <arg value="-v" />

@@ -359,7 +359,6 @@ public class MainActivity extends Activity {
             
             // List of all library files to copy
             String[] libraries = {
-                "libflint.so",
                 "libflint.so.22",
                 "libgmp.so",
                 "libmpfr.so"
