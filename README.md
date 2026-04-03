@@ -7,13 +7,14 @@ Dixon Resultant Computation for Android (ARM64)
 We found that basic Flint functionality can be used on Android, but there are numerous bugs.
 Our attempt on Android should stop here. You can use our Linux version [DixonRes](https://github.com/DixonRes/DixonRes) via Termux.
 
+    # install FLINT
     wget https://flintlib.org/download/flint-3.4.0.zip
     unzip flint-3.4.0.zip && cd flint-3.4.0
     ./configure --prefix=$PREFIX --enable-static
     make -j4
     make install
     cd ..
-    
+    # install PML (Optional)
     git clone https://github.com/vneiger/pml.git
     cd pml/flint-extras
     ./bootstrap.sh
@@ -21,7 +22,7 @@ Our attempt on Android should stop here. You can use our Linux version [DixonRes
     make -j4
     make install
     cd ../..
-    
+    # install DixonRes
     git clone https://github.com/DixonRes/DixonRes.git
     cd DixonRes
     ./configure --prefix=$PREFIX
