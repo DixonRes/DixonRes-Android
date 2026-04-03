@@ -5,7 +5,7 @@ Dixon Resultant Computation for Android (ARM64)
 **Note: Early test version – major bugs and calculation errors exist.**
 
 We found that basic Flint functionality can be used on Android, but there are numerous bugs.
-Our attempt on Android should stop here. You can use our Linux version via Termux.
+Our attempt on Android should stop here. You can use our Linux version [DixonRes](https://github.com/DixonRes/DixonRes) via Termux.
 
 ## Overview
 
