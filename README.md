@@ -10,7 +10,7 @@ Our attempt on Android should stop here. You can use our Linux version [DixonRes
     # install FLINT
     wget https://flintlib.org/download/flint-3.4.0.zip
     unzip flint-3.4.0.zip && cd flint-3.4.0
-    ./configure --prefix=$PREFIX --enable-static
+    ./configure --prefix=$PREFIX
     make -j4
     make install
     cd ..
@@ -18,7 +18,7 @@ Our attempt on Android should stop here. You can use our Linux version [DixonRes
     git clone https://github.com/vneiger/pml.git
     cd pml/flint-extras
     ./bootstrap.sh
-    ./configure --prefix=$PREFIX --enable-static
+    ./configure --prefix=$PREFIX
     make -j4
     make install
     cd ../..
